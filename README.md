@@ -300,7 +300,9 @@ Do not publish API keys, passwords, or other credentials in the repository.
 
 **Project Focus:** AI-powered school information and digital services portal.
 
----
+🔗 Project Links & Resources
+
+- 🌐 **Live Website Prototype:**https://jvm-smartverse.onrender.com/
 
 ### Where School Life Meets Artificial Intelligence.
 
