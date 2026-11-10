@@ -30,9 +30,9 @@ Instead of manually searching through different sections, users can interact wit
 
 ## ✨ 2. Key Features
 
-### 🤖 Shyamalian — AI School Assistant
+### 🤖 JVM AI Assistant  — AI School Assistant
 
-Shyamalian is the conversational AI assistant integrated into the JVM Smartverse portal.
+ JVM AI Assistant  is the conversational AI assistant integrated into the JVM Smartverse portal.
 
 Its intended capabilities include:
 
