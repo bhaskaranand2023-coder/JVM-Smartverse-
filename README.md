@@ -1,308 +1,61 @@
-# Hi, I'm Bhaskar Anand! 👋
+# JVM Shyamali website — v7 upgrade
 
-# 🚀 JVM Smartverse
+## Run
+```
+python app_server.py --port 8000      # Python 3.10+, no extra packages
+```
+Open http://127.0.0.1:8000 (do NOT use a static file server or file://). Existing accounts, teacher assignments and student records are unchanged (`private_data/`). The SQLite DB gets two new tables (`fee_orders`, `fee_payments`) automatically on first start — back up `private_data/school.sqlite3` before upgrading.
 
-### Where School Life Meets Artificial Intelligence.
+## Fee payments (Portal → Student/Parent login → "Fee Payment")
+Shows total fees, paid, outstanding, remaining, instalment due dates, payment history and receipts. The server computes every amount; the browser can't set it.
+Flow: `create-order` → gateway → `confirm`. Balance, history, receipt and dashboards (student, master) update only after the server records the payment, in one database transaction. Re-clicking/retrying returns the same receipt (no double charge); one open order per student; orders expire after 30 min; failed/declined payments change nothing. The old instant-pay endpoint is disabled.
 
-**#TheFutureOfEducation**
+Modes (`JVM_PAYMENT_MODE`):
+- `demo` (default) — **no gateway, no real money.** Clearly labelled in the UI; receipts are watermarked DEMO.
+- `razorpay` — set `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET`. Server creates the order and verifies the Razorpay HMAC signature before recording anything. **Not tested against live Razorpay** (no credentials/network here) — test with Razorpay test keys first. If keys are missing it falls back to demo.
+- `disabled` — hides payment; office payment only.
 
-JVM Smartverse is an AI-powered digital school portal developed for **Jawahar Vidya Mandir (JVM), Shyamli, Ranchi, India**. The project aims to bring essential school-related information, student services, academic resources, and interactive assistance together through a unified digital platform.
+Payments recorded before this upgrade are shown as "school office record" (derived from the existing fee fields, no invented transaction IDs).
 
-At the heart of the platform is **Shyamalian**, an AI-powered virtual school assistant designed to help students, parents, and visitors access relevant school information through natural-language conversations.
+## Chatbot
+Knowledge base (server-side, `chat_kb`) covers admissions, fees, due dates, payment status/receipts (own account only after sign-in), calendar/holidays/exams/PTM (read live from the site's own calendar list), timetables, timings, teachers, achievements, events, contact, login and technical help, with a fallback. It refuses passwords, other students' data and staff personal contacts. Optional AI: `ANTHROPIC_API_KEY` or `JVM_OLLAMA_MODEL`.
+Window: compact 340×460; − / % / + zoom (70–160%), % or ↺ resets zoom and position, drag by the header (double-click header re-docks), ⤢ maximise. Always clamped inside the viewport below the site header.
 
-The project explores how Artificial Intelligence and web technologies can improve the accessibility, organization, and digital experience of everyday school operations.
+## Tests (run on a COPY of the DB — they create demo payments)
+```
+JVM_DB_PATH=/tmp/t.sqlite3 python app_server.py --port 8123
+python tests_api.py 8123     # 50+ API/permission/payment/chatbot checks
+python tests_ui.py 8123      # needs: pip install playwright && playwright install chromium
+```
+Both pass in the delivery environment. After editing `index.html` run `python build_pages.py`.
 
----
+## Known limitations
+- Razorpay live mode untested (see above); no webhook — if a customer pays but closes the browser before the confirm call, the office must reconcile manually.
+- Receipts are HTML (print/save as PDF from the browser).
+- Sessions are in server memory (restart = sign in again). Use HTTPS and change all demo passwords before going public (see README_DEPLOYMENT.txt).
+- Homework/live attendance feeds don't exist in the data, so the chatbot points to the diary/portal instead of inventing answers.
+- Tested in headless Chromium only (desktop, 390px phone, short-screen viewports); not on real iOS/Android devices.
 
-## 📌 1. Project Overview
+## Update v9 (content update)
+- Calendar data (`JVM_ACADEMIC_EVENTS` in index.html) replaced with the 2026-27 Holiday List and School Activity Calendar; added a "Class group" selector. Run `python build_pages.py` after any edit to index.html.
+- New Leadership section (Chairman, Principal) on the About page; logo/favicon; campus photos; three news cards with newspaper clippings in `images/`.
+- "Latest Notices" ticker now shows text-only notices. No backend, API, database or deployment files were changed.
 
-Traditional school websites often require users to navigate through multiple pages to find specific information. JVM Smartverse aims to simplify this experience by combining a structured school portal with an intelligent conversational assistant.
+## Supplied photo and faculty update (October 2026)
 
-Instead of manually searching through different sections, users can interact with Shyamalian to find relevant information, navigate to specific website sections, and access available school services.
+The public faculty directory in `faculty.json` contains the names, roles and subjects supplied for this update. Only the clearly labelled portraits for Mr. L. N. Pattanaik and Mr. Anshu Kumar Pandey are assigned to those profiles; the other cards use initials until matched portraits are supplied. The Anshu portrait asset is cropped from the supplied profile screenshot so the surrounding phone/status interface is not published.
 
-**Primary objectives:**
+Supplied genuine school photos now populate the campus, library, lab, sports, cultural-event, gallery, and NEET achievements sections. News and result entries are based on the supplied October 2026 research PDF and link to the listed school/news sources. The original `principal.png` and `chairman.png` files are unchanged. Teacher/student account IDs, passwords, database records, and server-side access rules were not changed.
 
-- Develop a centralized digital platform for school-related information.
-- Integrate an AI-powered conversational assistant.
-- Simplify access to academic and administrative information.
-- Organize school events, holidays, and activities.
-- Provide structured access to student-related services.
-- Explore practical applications of AI in educational environments.
+## Update v10 — chatbot: public fee estimate, working days / holidays, proper "not understood" reply
+Changed files: `app_server.py` (chatbot only), `index.html` + regenerated `pages/*.html` (chat window only), `tests_api.py`, `tests_ui.py`. No database, login, payment, CORS or deployment files changed; no new dependencies.
 
-## ✨ 2. Key Features
+**1. Fee estimate for any class (public, no login).** Type e.g. "estimate fees for class 11" or "Class 5 fees". The bot asks, one question at a time with tap-buttons: class → stream/specialty (Class XI/XII only) → existing student or new admission → bus zone → quarterly or annual, then shows the itemised estimate (tuition, bus, Dev & Lab Fund, admission fee, 5% annual rebate). You can also give everything in one sentence, or tap "Skip – use defaults". Figures and formula are the same as the Fee Structure table and Fee Estimator on the Admissions page (`FEE_TIERS`, `FEE_BUS` in `app_server.py` — edit them there when fees change). Nothing is invented: the table has no Class XI Commerce/Arts tuition and no Class XII admission fee, so the bot says so instead of guessing. "my fees", receipts, payments and due dates still go to the existing signed-in flow. The server keeps no per-visitor state (the page sends the partial answers back with each message).
 
-### 🤖 Shyamalian — AI School Assistant
+**2. Working days and holidays in a month.** Ask "how many working days are in this month?", "holidays in November", "working days next month", "working days left this month", "working days in May". Counted from the site's own `JVM_ACADEMIC_EVENTS` holiday entries (multi-day breaks use their `end` date). School week = Monday–Saturday, Sundays off; every day is exactly one of working / holiday / Sunday and the answer shows that check. Months outside April 2026 – March 2027 are declined rather than guessed. Class-wise session start dates and exam days are not deducted (stated in the answer).
 
-Shyamalian is the conversational AI assistant integrated into the JVM Smartverse portal.
+**3. Unknown prompts.** The old reply "We are working on it." is replaced by a short list of what the chatbot can do, example questions, tap-buttons and the school office number (`FALLBACK`, `FALLBACK_OPTIONS`).
 
-Its intended capabilities include:
+Small related fixes: the holiday list answers now show multi-day breaks as a date range and keep a break that has already started but not finished. New optional setting `JVM_CHAT_LIMIT` (default 30 messages/min per IP, unchanged); the test suite sets 500.
 
-- Answering school-related questions.
-- Providing information using the available school knowledge base.
-- Responding to questions about fees, holidays, activities, faculty, and other school information.
-- Understanding differently phrased questions.
-- Supporting contextual follow-up conversations.
-- Guiding users towards relevant website sections.
-- Providing direct links to specific information wherever supported.
-
-### 📅 Interactive Events Calendar
-
-The portal includes an events calendar designed to make school activities easier to discover.
-
-Features include:
-
-- Monthly calendar navigation.
-- Highlighted dates containing scheduled activities.
-- Event information associated with individual dates.
-- Multiple activities on the same date.
-- School-wide and class-specific activities.
-- Integration with the school's activity information.
-
-### 🎓 Class-wise Activities and Holiday Information
-
-The platform organizes school activities and holiday information across different classes.
-
-The intended class coverage includes:
-
-- LKG and UKG.
-- Classes I–XII.
-
-This helps users find relevant activities and schedules without searching through unrelated information.
-
-### 💰 School Fee Information
-
-The fee-information section is intended to provide access to structured school fee details.
-
-The current data scope being prepared includes:
-
-- Academic year 2025.
-- Academic year 2026.
-- Class-specific fee information, where available.
-- Internal-student fee details, where applicable.
-- Transportation and bus charges, where documented.
-
-Only verified information should be presented as official fee information.
-
-### 👨‍🎓 Student Dashboard Access
-
-The portal includes student-record lookup functionality based on registration numbers.
-
-Its intended capabilities include:
-
-- Matching supplied registration numbers with available student records.
-- Identifying the corresponding student record.
-- Supporting access to the appropriate student dashboard.
-- Handling invalid or unrecognized registration numbers.
-
-Student information and dashboard access must remain subject to appropriate authentication and authorization controls.
-
-### 👩‍🏫 Faculty Information
-
-A structured faculty information section organizes available information about school faculty members.
-
-### 🏆 Achievements
-
-The achievements section presents school-related accomplishments and records maintained in the project's structured data.
-
-### 📚 Timetable Management
-
-The project includes timetable-related data and a timetable generation script to support the organization and presentation of academic schedules.
-
-### 🌐 School Portal and Navigation
-
-The website provides a centralized interface for accessing different school-related sections.
-
-The portal is designed to offer:
-
-- Organized navigation.
-- Access to relevant school information.
-- An integrated chatbot experience.
-- Responsive website interaction across supported screen sizes.
-
----
-
-## 🛠️ 3. Technology Stack
-
-The project uses web technologies and Python-based application components.
-
-| Technology | Purpose |
-|---|---|
-| HTML5 | Website structure and content |
-| CSS3 | Styling and visual presentation |
-| JavaScript | Frontend functionality and interactivity |
-| Tailwind CSS | Utility-first styling and responsive UI development |
-| Python | Backend logic and supporting scripts |
-| JSONL | Structured school and student data storage |
-| AI integration | Conversational assistance through Shyamalian |
-
-*Note: The exact AI model, API provider, backend framework, and external dependencies should be documented after verification of the final implementation.*
-
----
-
-## 🏗️ 4. Project Architecture and Data Organization
-
-The project uses a combination of frontend files, Python scripts, and structured data files.
-
-### Main application files
-
-| File | Description |
-|---|---|
-| `app_server.py` | Main Python application server |
-| `index.html` | Website entry-point HTML file |
-| `JVM_Shyamli_Portal.html` | School portal interface |
-| `build_pages.py` | Supporting page-generation script |
-| `generate_timetable.py` | Timetable-generation script |
-
-### Structured data files
-
-| File | Description |
-|---|---|
-| `achievements.jsonl` | School achievement records |
-| `faculty.jsonl` | Faculty information |
-| `official_sources.jsonl` | References to official information sources |
-| `original_student_records.jsonl` | Original student records |
-| `section_students.jsonl` | Class and section-related student records |
-| `timetable.jsonl` | Timetable information |
-
-### Documentation and deployment files
-
-| File | Description |
-|---|---|
-| `audit_report.txt` | Project audit information |
-| `changes_v3.txt` | Development change records |
-| `ready-made_deployment.txt` | Deployment-related instructions |
-| Windows startup script | Instructions or automation for Windows |
-| macOS/Linux startup script | Instructions or automation for macOS and Linux |
-
-The actual relationships between these components should be verified against the current source code.
-
----
-
-## 🧠 5. AI Integration and Data Handling
-
-A major part of JVM Smartverse is the integration of conversational AI into a school-information platform.
-
-The goal is to make school information accessible through natural-language queries rather than relying exclusively on manual navigation.
-
-The platform uses structured data sources to organize information such as:
-
-- Faculty records.
-- Student records.
-- Achievements.
-- Timetables.
-- Official school references.
-- Other school-related information.
-
-The AI assistant is intended to use relevant verified information when responding to school-specific questions.
-
-An important design principle is to avoid generating unsupported school information. When verified information is unavailable, the assistant should communicate that limitation rather than inventing an answer.
-
----
-
-## 🔐 6. Deployment and Security Status
-
-**Current deployment status:** Live website / development prototype.
-
-The website is currently accessible online, but HTTPS and SSL/TLS security configuration have not yet been verified or completed.
-
-The current deployment should therefore not be considered production-secure.
-
-Security improvements to be considered before handling real student information include:
-
-- HTTPS configuration.
-- Secure authentication and authorization.
-- Protection of student records.
-- Secure storage of API keys and credentials.
-- Input validation and server-side access controls.
-- Appropriate session management.
-- Protection against unauthorized dashboard access.
-
-**Important:** The project has been developed with a zero-budget approach, using free tools and services wherever possible.
-
-An SSL/TLS certificate does not necessarily require purchasing one. Free certificate options, such as Let's Encrypt, and free HTTPS support from some hosting providers can be explored.
-
-Until HTTPS and the other necessary security controls are configured and verified, the live prototype should not be used to collect sensitive personal information or real student credentials.
-
----
-
-## 💡 7. Development Philosophy
-
-JVM Smartverse is built around three central ideas:
-
-1. **Accessibility:** Making school information easier to discover.
-2. **Intelligence:** Using AI to simplify interactions between users and school information.
-3. **Integration:** Bringing different school-related resources into one digital environment.
-
-The project also demonstrates how modern web development and AI tools can be applied to practical educational challenges.
-
----
-
-## 🔮 8. Future Enhancements
-
-Potential future improvements include:
-
-- Voice-enabled interaction with Shyamalian.
-- Improved chatbot accuracy and contextual understanding.
-- More advanced calendar filtering and navigation.
-- Enhanced student dashboard functionality.
-- Secure authentication and HTTPS deployment.
-- Improved mobile experience.
-- Additional school information modules.
-- Better data validation and administration tools.
-- Expanded integration of verified school resources.
-
----
-
-## ⚙️ 9. Setup and Installation
-
-The project contains Python-based application files and platform-specific startup instructions.
-
-The exact setup procedure depends on the current dependencies and deployment configuration.
-
-Before publishing installation instructions, verify:
-
-1. The required Python version.
-2. The required Python packages and dependency file.
-3. Any required environment variables.
-4. AI API configuration.
-5. The correct application entry point.
-6. The Windows and macOS/Linux startup procedures.
-
-Do not publish API keys, passwords, or other credentials in the repository.
-
----
-
-## 📊 10. Project Status
-
-| Component | Status |
-|---|---|
-| School website | Live prototype |
-| Shyamalian AI assistant | Implemented; ongoing improvements |
-| Events calendar | Included; data integration and verification ongoing |
-| School information | Structured information available |
-| Fee information | 2025 and 2026 data being organized and verified |
-| Student dashboard | Registration-number functionality under development and verification |
-| Faculty information | Structured data file available |
-| Achievements | Structured data file available |
-| Timetable | Data and generation scripts available |
-| HTTPS security | Not yet configured or verified |
-
-*Feature status should be updated as development and testing progress.*
-
----
-
-## 👨‍💻 11. Project Credits
-
-**Project Name:** JVM Smartverse
-
-**Institution:** Jawahar Vidya Mandir, Shyamli
-
-**Project Category:** Artificial Intelligence / Web Development / Educational Technology
-
-**Project Focus:** AI-powered school information and digital services portal.
-
----
-
-### Where School Life Meets Artificial Intelligence.
-
-**#TheFutureOfEducation**
+Tests: `tests_api.py` 102 checks and `tests_ui.py` 93 checks pass on a fresh DB copy; `tests_cors.py` passes. Start the test server with `JVM_CHAT_LIMIT=500` (see the file headers).

@@ -1,0 +1,7 @@
+.git
+__pycache__
+*.pyc
+private_data/*.sqlite3-wal
+private_data/*.sqlite3-shm
+*.zip
+tests_*.py
